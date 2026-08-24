@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heuristic Evaluation Runner</title>
+
+<!--
+  ============================================================================
+  HEURISTIC EVALUATION RUNNER  ·  v4
+  ============================================================================
+
+  NEW IN v4
+  · A rail of ten dots down the left, pinned while you scroll. Each is filled
+    with the worst severity found in that heuristic, so you can see WHICH
+    ones you've covered — not just how many. Click one to jump to it.
+  · The rail highlights whichever heuristic you're currently looking at.
+  · You can edit a saved finding instead of deleting it and typing it again.
+
+  NEW IN v3
+  · A dark version of the whole design, for people whose computer is set to
+    dark mode. Only the colour VALUES change — no layout or code is duplicated.
+  · A warning when printing won't work, instead of a button that does nothing.
+
+  HOW THIS FILE IS ORGANISED
+  Three languages stacked on top of each other:
+    1. HTML — the structure. What things ARE.
+    2. CSS  — the presentation. What things LOOK like. (the <style> block)
+    3. JS   — the behaviour. What things DO. (the <script> at the bottom)
+
+  THE ONE IDEA THAT MATTERS
+  There is a single object called `state`. It holds everything true about your
+  evaluation right now. Nothing else stores data. When you click something, we
+  change `state` and then redraw the screen from scratch.
+
+      click  →  change state  →  render()  →  screen matches state
+  ============================================================================
+-->
+
+<style>
+  /* ---------------------------------------------------------------------
+     DESIGN TOKENS — the same idea as Figma variables.
+
+     Every colour in this file is named here and used by name below. That's
+     what makes dark mode almost free: further down we just give the same
+     names different values, and the entire page follows. Nothing else has
+     to change, because nothing else knows what "#f6f6f4" was.
+     --------------------------------------------------------------------- */
+  :root {
+    --bg:           #f6f6f4;
+    --surface:      #ffffff;
+    --sunken:       #efeeeb;   /* recessed areas: image mounts, empty bars */
+    --field-bg:     #ffffff;
+    --hover:        #faf9f7;
+    --border:       #e3e2de;
+    --border-firm:  #cfcdc7;
+    --text:         #1f1e1c;
+    --text-soft:    #6b6862;
+    --text-faint:   #97938c;
+
+    --accent:       #2f5eaa;
+    --accent-dark:  #275092;
+    --accent-soft:  #eaf0fa;
+    --accent-line:  #d6e2f5;
+
+    /* Text sitting ON a filled colour — white on light-mode's deep blue,
+       near-black on dark-mode's pale blue. One name, both cases handled. */
+    --ink-on-color: #ffffff;
+
+    --sev-0: #8a8781;
+    --sev-1: #4b7ab8;
+    --sev-2: #b8862f;
+    --sev-3: #c26526;
+    --sev-4: #b5342b;
+
+    --notice-bg:     #fdf0ee;
+    --notice-border: #f0cfc9;
+    --notice-text:   #8f2f26;
+
+    --bar-bg: rgba(255, 255, 255, .93);
+
+    --radius: 8px;
+    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 1px 8px rgba(0,0,0,.03);
+    --panel-w: 350px;
+
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+            Helvetica, Arial, sans-serif;
+  }
+
+  /* Viewer's computer is set to dark, and they haven't overridden it here. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:           #191816;
+      --surface:      #232220;
+      --sunken:       #1c1b19;
+      --field-bg:     #2b2a27;
+      --hover:        #2b2a27;
+      --border:       #34332f;
+      --border-firm:  #4a4844;
+      --text:         #ececea;
+      --text-soft:    #a9a59e;
+      --text-faint:   #8e8b84;
+
+      --accent:       #7fa8e2;
+      --accent-dark:  #9dbde9;
+      --accent-soft:  #212a3a;
+      --accent-line:  #33405a;
+      --ink-on-color: #17160f;
+
+      --sev-0: #9d9a93;
+      --sev-1: #7ba5dd;
+      --sev-2: #d9a851;
+      --sev-3: #e08a4d;
+      --sev-4: #e2685c;
+
+      --notice-bg:     #35211f;
+      --notice-border: #5c332e;
+      --notice-text:   #f0b4ab;
+
+      --bar-bg: rgba(35, 34, 32, .93);
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 8px rgba(0,0,0,.2);
+    }
+  }
+
+  /* Viewer explicitly chose dark, whatever their computer says. */
+  :root[data-theme="dark"] {
+    --bg:           #191816;
+    --surface:      #232220;
+    --sunken:       #1c1b19;
+    --field-bg:     #2b2a27;
+    --hover:        #2b2a27;
+    --border:       #34332f;
+    --border-firm:  #4a4844;
+    --text:         #ececea;
+    --text-soft:    #a9a59e;
+    --text-faint:   #8e8b84;
+
+    --accent:       #7fa8e2;
+    --accent-dark:  #9dbde9;
+    --accent-soft:  #212a3a;
+    --accent-line:  #33405a;
+    --ink-on-color: #17160f;
+
+    --sev-0: #9d9a93;
+    --sev-1: #7ba5dd;
+    --sev-2: #d9a851;
+    --sev-3: #e08a4d;
+    --sev-4: #e2685c;
+
+    --notice-bg:     #35211f;
+    --notice-border: #5c332e;
+    --notice-text:   #f0b4ab;
+
+    --bar-bg: rgba(35, 34, 32, .93);
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 1px 8px rgba(0,0,0,.2);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--text);
+    background: var(--bg);   /* must be explicit, or the page borrows whatever
+                                background sits behind it */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 32px 24px 96px; }
+
+  /* ---------------------------------------------------------------------
+     LAYOUT
+     Always: a narrow rail on the left, the heuristics beside it.
+     With a screenshot: a third column on the right for the pinned screen.
+
+     The columns are written rail → screenshot → heuristics in the HTML, and
+     placed explicitly with grid-column. Writing them in that order means that
+     when the grid collapses to one column on a narrow window, the rail and
+     the screenshot land at the TOP instead of being stranded below all ten
+     heuristics.
+     --------------------------------------------------------------------- */
+  .layout {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 22px;
+    max-width: 924px;
+    margin: 0 auto;
+  }
+  .layout.with-shot {
+    max-width: none;
+    grid-template-columns: 40px minmax(0, 1fr) var(--panel-w);
+    gap: 22px 26px;
+  }
+  .layout > .railcol { grid-column: 1; grid-row: 1; }
+  .layout > .maincol { grid-column: 2; grid-row: 1; }
+  .layout.with-shot > .shotcol { grid-column: 3; grid-row: 1; }
+
+  @media (max-width: 1060px) {
+    .layout, .layout.with-shot { grid-template-columns: 1fr; gap: 0; }
+    .layout > .railcol,
+    .layout > .maincol,
+    .layout.with-shot > .shotcol { grid-column: 1; grid-row: auto; }
+    .layout > .maincol { margin-top: 18px; }
+    .layout.with-shot > .shotcol { margin-top: 18px; }
+  }
+
+  /* ---------------------------------------------------------------------
+     THE RAIL
+     Ten dots, one per heuristic. Filled with the worst severity recorded
+     against that heuristic, so a glance tells you both where you've been
+     and where the serious problems are.
+     --------------------------------------------------------------------- */
+  .rail {
+    position: sticky; top: 24px;
+    display: flex; flex-direction: column; gap: 7px; align-items: center;
+  }
+  .rail-dot {
+    width: 30px; height: 30px; padding: 0; border-radius: 50%;
+    background: var(--surface); border: 1px solid var(--border-firm);
+    color: var(--text-faint); font-size: 12px; font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    display: grid; place-items: center; cursor: pointer;
+    transition: border-color .12s, color .12s;
+  }
+  .rail-dot:hover { border-color: var(--accent); color: var(--accent); }
+  .rail-dot.has { border-color: transparent; color: var(--ink-on-color); }
+  .rail-dot.has:hover { color: var(--ink-on-color); }
+  /* "You are here." Set by scroll position, not by clicking. */
+  .rail-dot.active { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (max-width: 1060px) {
+    .rail {
+      top: 0; flex-direction: row; flex-wrap: wrap; justify-content: center;
+      gap: 6px; padding: 10px 0; z-index: 20;
+      background: var(--bar-bg); backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+    }
+  }
+
+  /* ---------- Top bar ----------
+     Matches whichever layout is underneath it, so the title lines up with the
+     rail rather than floating loose. */
+  .topbar {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; margin: 0 auto 22px;
+    max-width: 924px;
+  }
+  .topbar.wide { max-width: none; }
+  .topbar h1 { font-size: 19px; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+  .topbar p  { margin: 2px 0 0; font-size: 13px; color: var(--text-soft); }
+
+  /* ---------- Generic surfaces ---------- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  /* ---------- Setup panel ---------- */
+  .setup { padding: 20px; margin-bottom: 22px; }
+  .setup-grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+  label.field { display: block; }
+  label.field span.lbl {
+    display: block; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--text-faint); margin-bottom: 5px;
+  }
+  label.field span.lbl em {
+    text-transform: none; letter-spacing: 0; font-style: normal; font-weight: 500;
+  }
+  input[type=text], input[type=date], textarea {
+    width: 100%; font: inherit; font-size: 14px; color: var(--text);
+    padding: 8px 10px; background: var(--field-bg);
+    border: 1px solid var(--border-firm); border-radius: 6px;
+  }
+  input:focus, textarea:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent);
+  }
+  textarea { resize: vertical; min-height: 62px; line-height: 1.5; }
+  ::placeholder { color: var(--text-faint); opacity: 1; }
+
+  /* ---------- Screenshot drop zone ---------- */
+  .dropzone {
+    display: block; margin-top: 16px; padding: 18px 20px; cursor: pointer;
+    border: 1px dashed var(--border-firm); border-radius: 6px; background: var(--bg);
+    text-align: center; transition: border-color .12s, background .12s;
+  }
+  .dropzone:hover, body.dragging .dropzone {
+    border-color: var(--accent); background: var(--accent-soft);
+  }
+  .dropzone input { display: none; }
+  .dropzone b { display: block; font-size: 14px; font-weight: 600; }
+  .dropzone small { display: block; margin-top: 3px; font-size: 12.5px; color: var(--text-soft); }
+  .dropzone .kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+    background: var(--surface); border: 1px solid var(--border-firm);
+    border-radius: 4px; padding: 1px 5px;
+  }
+  body.dragging { outline: 3px solid var(--accent); outline-offset: -3px; }
+
+  /* ---------- Pinned screenshot panel ---------- */
+  .shotpanel { position: sticky; top: 24px; }
+  .shotpanel .card { overflow: hidden; }
+  .shotpanel figure { margin: 0; background: var(--sunken); cursor: zoom-in; display: block; }
+  .shotpanel img {
+    display: block; width: 100%; height: auto; max-height: 68vh;
+    object-fit: contain; object-position: top;
+  }
+  .shot-meta {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 9px 11px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--text-faint);
+  }
+  .shot-meta .name {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; color: var(--text-soft);
+  }
+  .shot-hint { margin: 8px 2px 0; font-size: 12px; color: var(--text-faint); text-align: center; }
+
+  /* On a narrow window the panel can't be sticky, so a big image just becomes
+     a wall you scroll past to reach the heuristics. Shrink it to a thumbnail —
+     tapping it still opens the full-size view, which is where the real
+     looking happens anyway.
+
+     These rules live HERE, after the rules they override, rather than up in
+     the layout section. Same specificity means the last one written wins, and
+     an earlier media query would silently lose. */
+  @media (max-width: 1060px) {
+    .shotpanel { position: static; }
+    .shotpanel figure { display: flex; justify-content: center; }
+    .shotpanel img {
+      width: auto; max-width: 100%; max-height: 170px;
+      object-fit: contain; object-position: center;
+    }
+  }
+  .linkbtn {
+    background: none; border: none; padding: 0; font: inherit; font-size: 12px;
+    color: var(--accent); text-decoration: underline; cursor: pointer;
+  }
+  .linkbtn:hover { color: var(--accent-dark); }
+  .linkbtn.danger { color: var(--sev-4); }
+
+  /* ---------- Lightbox ----------
+     Deliberately dark in both themes: it's a viewer, and a neutral dark
+     surround is how you judge a screenshot honestly. */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 100; background: rgba(20,19,17,.93);
+    display: grid; place-items: center; padding: 48px 24px;
+  }
+  .lightbox img {
+    max-width: 100%; max-height: 100%; object-fit: contain;
+    cursor: zoom-in; box-shadow: 0 8px 40px rgba(0,0,0,.45); background: #fff;
+  }
+  /* Zoomed, we stop shrinking the image and let the overlay scroll instead.
+     That's the whole zoom feature — no dragging maths required. */
+  .lightbox.zoomed { place-items: start; padding: 0; overflow: auto; }
+  .lightbox.zoomed img { max-width: none; max-height: none; cursor: zoom-out; box-shadow: none; }
+  .lightbox-bar { position: fixed; top: 14px; right: 16px; display: flex; gap: 8px; z-index: 101; }
+  .lightbox-bar button {
+    background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.28);
+    padding: 6px 12px; font-size: 13px; font-weight: 550; backdrop-filter: blur(6px);
+  }
+  .lightbox-bar button:hover { background: rgba(255,255,255,.26); }
+
+  /* ---------- Progress strip ---------- */
+  .progress {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 16px; margin-bottom: 20px;
+    font-size: 13px; color: var(--text-soft);
+    background: var(--accent-soft); border: 1px solid var(--accent-line);
+    border-radius: var(--radius);
+  }
+  .progress strong { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tally { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tally span { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .sep { color: var(--border-firm); }
+
+  /* ---------- Heuristic cards ---------- */
+  /* scroll-margin-top stops a card jumped to from the rail landing flush
+     against the top edge of the window. */
+  .heuristic { padding: 18px 20px; margin-bottom: 14px; scroll-margin-top: 22px; }
+  .heuristic.reviewed { border-left: 3px solid var(--accent); }
+  @media (max-width: 1060px) {
+    .heuristic { scroll-margin-top: 76px; }   /* clear the horizontal rail */
+  }
+
+  .h-head { display: flex; gap: 12px; align-items: flex-start; }
+  .h-num {
+    flex: none; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--bg); border: 1px solid var(--border-firm);
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 650; color: var(--text-soft);
+  }
+  .heuristic.reviewed .h-num {
+    background: var(--accent); border-color: var(--accent); color: var(--ink-on-color);
+  }
+  .h-title { font-size: 15px; font-weight: 620; margin: 2px 0 0; letter-spacing: -.005em; }
+  .h-desc  { font-size: 13.5px; color: var(--text-soft); margin: 5px 0 0; }
+  .h-prompt {
+    font-size: 13px; color: var(--text-faint); margin: 8px 0 0;
+    padding-left: 11px; border-left: 2px solid var(--border); font-style: italic;
+  }
+
+  /* ---------- Findings ---------- */
+  .findings { margin: 16px 0 0; padding: 0; list-style: none; }
+  .finding {
+    display: flex; gap: 11px; align-items: flex-start;
+    padding: 11px 12px; margin-bottom: 8px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  }
+  .finding-body { flex: 1; min-width: 0; }
+  .finding-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+  .finding-editing { list-style: none; margin-bottom: 8px; }
+  .finding-issue { font-size: 14px; margin: 0; overflow-wrap: anywhere; }
+  .finding-rec { font-size: 13px; color: var(--text-soft); margin: 5px 0 0; overflow-wrap: anywhere; }
+  .finding-rec b { font-weight: 600; color: var(--text); }
+
+  .sev-chip {
+    flex: none; display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 8px 2px 6px; border-radius: 20px;
+    font-size: 11.5px; font-weight: 600; white-space: nowrap;
+    color: var(--ink-on-color);
+  }
+  .sev-chip .n { opacity: .72; font-variant-numeric: tabular-nums; }
+
+  /* ---------- Buttons ---------- */
+  button { font: inherit; cursor: pointer; border-radius: 6px; }
+  .btn {
+    padding: 7px 13px; font-size: 13.5px; font-weight: 550;
+    background: var(--surface); color: var(--text); border: 1px solid var(--border-firm);
+  }
+  .btn:hover { background: var(--hover); border-color: var(--text-faint); }
+  .btn-primary {
+    background: var(--accent); border-color: var(--accent); color: var(--ink-on-color);
+  }
+  .btn-primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+  .btn-ghost {
+    background: none; border: 1px dashed var(--border-firm); color: var(--text-soft);
+    padding: 7px 12px; font-size: 13.5px;
+  }
+  .btn-ghost:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .btn-x {
+    flex: none; background: none; border: none; color: var(--text-faint);
+    font-size: 17px; line-height: 1; padding: 2px 5px;
+  }
+  .btn-x:hover { color: var(--sev-4); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- Finding editor ---------- */
+  .editor {
+    margin-top: 14px; padding: 14px; background: var(--bg);
+    border: 1px solid var(--border-firm); border-radius: 6px;
+  }
+  .editor > * + * { margin-top: 11px; }
+  .sev-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .sev-opt { position: relative; }
+  .sev-opt input { position: absolute; opacity: 0; pointer-events: none; }
+  .sev-opt span {
+    display: block; padding: 6px 11px; font-size: 12.5px; font-weight: 550;
+    background: var(--field-bg); border: 1px solid var(--border-firm);
+    border-radius: 20px; cursor: pointer; user-select: none;
+  }
+  .sev-opt input:checked + span { border-color: transparent; }
+  .sev-opt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .editor-actions { display: flex; gap: 8px; }
+
+  /* ---------- Notice ---------- */
+  .notice {
+    padding: 10px 14px; margin-bottom: 16px; font-size: 13.5px;
+    background: var(--notice-bg); border: 1px solid var(--notice-border);
+    color: var(--notice-text); border-radius: 6px;
+  }
+
+  /* ---------- Sticky footer bar ---------- */
+  .actionbar {
+    position: sticky; bottom: 0; margin-top: 28px; padding: 14px 20px;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--bar-bg); backdrop-filter: blur(8px);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 -2px 12px rgba(0,0,0,.06);
+  }
+  .actionbar .spacer { flex: 1; }
+  .hint { font-size: 12.5px; color: var(--text-faint); }
+
+  /* =====================================================================
+     REPORT VIEW
+     ===================================================================== */
+  .report { padding: 44px 48px; max-width: 860px; margin: 0 auto; }
+  .report h2 { font-size: 24px; font-weight: 650; margin: 0 0 4px; letter-spacing: -.02em; text-wrap: balance; }
+  .report .sub { color: var(--text-soft); font-size: 14px; margin: 0; }
+  .report-meta {
+    display: grid; gap: 12px 28px; margin: 26px 0;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    padding: 18px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  .report-meta div span {
+    display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--text-faint); margin-bottom: 3px;
+  }
+  .report-meta div b { font-weight: 550; font-size: 14px; }
+
+  .report-shot {
+    margin: 24px 0; padding: 12px; background: var(--sunken);
+    border: 1px solid var(--border); border-radius: 6px; text-align: center;
+  }
+  .report-shot img {
+    display: block; margin: 0 auto; max-width: 100%; max-height: 520px;
+    height: auto; width: auto; background: #fff; border: 1px solid var(--border-firm);
+  }
+  .report-shot figcaption { margin-top: 9px; font-size: 12px; color: var(--text-faint); }
+
+  .sev-bars { margin: 24px 0; }
+  .sev-bar-row {
+    display: grid; grid-template-columns: 150px 1fr 34px;
+    align-items: center; gap: 12px; margin-bottom: 7px; font-size: 13px;
+  }
+  /* display:block matters here — a plain <span> is inline, and inline elements
+     ignore width and height, so these would render as flat empty tracks. */
+  .sev-bar-track {
+    display: block; height: 9px; background: var(--sunken);
+    border: 1px solid var(--border); border-radius: 5px; overflow: hidden;
+  }
+  .sev-bar-fill { display: block; height: 100%; border-radius: 5px; min-width: 3px; }
+  .sev-bar-row .count {
+    text-align: right; font-variant-numeric: tabular-nums; color: var(--text-soft);
+  }
+
+  .report h3 {
+    font-size: 12px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-faint); margin: 32px 0 14px;
+    padding-bottom: 7px; border-bottom: 1px solid var(--border);
+  }
+  .r-finding { margin-bottom: 20px; padding-left: 14px; border-left: 3px solid var(--border); }
+  .r-finding-head { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin-bottom: 5px; }
+  .r-heur {
+    font-size: 11.5px; font-weight: 600; color: var(--text-faint);
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .r-issue { margin: 0; font-size: 14.5px; }
+  .r-rec { margin: 6px 0 0; font-size: 13.5px; color: var(--text-soft); }
+  .r-rec b { color: var(--text); font-weight: 600; }
+  .report-foot {
+    margin-top: 38px; padding-top: 16px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--text-faint);
+  }
+  .clean-note { padding: 26px; text-align: center; color: var(--text-soft); font-size: 14px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  /* ---------------------------------------------------------------------
+     PRINT STYLES — what the PDF looks like. Printing is always on white,
+     whatever theme the screen was showing.
+     --------------------------------------------------------------------- */
+  @media print {
+    @page { margin: 16mm; }
+    :root {
+      --bg: #fff; --surface: #fff; --sunken: #fff;
+      --border: #ddd; --border-firm: #bbb;
+      --text: #16150f; --text-soft: #55534e; --text-faint: #77746e;
+      --ink-on-color: #fff;
+      --sev-0: #8a8781; --sev-1: #4b7ab8; --sev-2: #b8862f;
+      --sev-3: #c26526; --sev-4: #b5342b;
+    }
+    body { background: #fff; font-size: 11pt; }
+    .wrap { max-width: none; padding: 0; }
+    .no-print { display: none !important; }
+    .report { padding: 0; border: none; box-shadow: none; max-width: none; }
+    .r-finding { break-inside: avoid; }
+    .report-shot { break-inside: avoid; background: none; padding: 0; border: none; }
+    .report-shot img { max-height: 115mm; }
+    .sev-bar-fill, .sev-chip, .dot {
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+  }
+</style>
+
+<div class="wrap">
+  <!-- Almost the entire page is drawn by JavaScript. This empty div is the
+       stage; render() sets its contents. -->
+  <div id="app"></div>
+</div>
+
+<script>
+"use strict";
+
+/* ==========================================================================
+   1. REFERENCE DATA — Nielsen's 10 usability heuristics (1994).
+   This never changes while the app runs, so it lives outside `state`.
+   ========================================================================== */
+const HEURISTICS = [
+  { id: 1,  name: "Visibility of system status",
+    desc: "The design keeps users informed about what is going on, through appropriate feedback within a reasonable time.",
+    prompt: "After every action here, does the user know what happened and what state they're in?" },
+  { id: 2,  name: "Match between system and the real world",
+    desc: "Speak the users' language. Use words, phrases and concepts familiar to them rather than internal jargon.",
+    prompt: "Would someone outside the company understand every word on this screen?" },
+  { id: 3,  name: "User control and freedom",
+    desc: "Users need a clearly marked emergency exit to leave an unwanted action, without an extended dialogue.",
+    prompt: "Can they undo, go back, or cancel — and is that exit obvious?" },
+  { id: 4,  name: "Consistency and standards",
+    desc: "Users should not have to wonder whether different words, situations or actions mean the same thing.",
+    prompt: "Does this match the rest of the product, and the platform conventions users already know?" },
+  { id: 5,  name: "Error prevention",
+    desc: "Even better than good error messages is a careful design which prevents a problem from occurring in the first place.",
+    prompt: "What mistake is this screen inviting, and could the design make it impossible?" },
+  { id: 6,  name: "Recognition rather than recall",
+    desc: "Minimise memory load by making elements, actions and options visible.",
+    prompt: "Is the user required to remember anything from a previous screen?" },
+  { id: 7,  name: "Flexibility and efficiency of use",
+    desc: "Accelerators — unseen by the novice — may speed up interaction for the expert user.",
+    prompt: "Is there a faster path for someone doing this for the hundredth time?" },
+  { id: 8,  name: "Aesthetic and minimalist design",
+    desc: "Interfaces should not contain information which is irrelevant or rarely needed.",
+    prompt: "What could be removed without losing meaning? What competes with the primary action?" },
+  { id: 9,  name: "Help users recognise, diagnose and recover from errors",
+    desc: "Error messages should be in plain language, precisely indicate the problem, and constructively suggest a solution.",
+    prompt: "When this goes wrong, does the message say what happened and what to do next?" },
+  { id: 10, name: "Help and documentation",
+    desc: "It may be necessary to provide documentation to help users understand how to complete their tasks.",
+    prompt: "If someone gets stuck here, is help findable at the moment they need it?" }
+];
+
+/* Nielsen's severity scale. Index in the array == the severity number. */
+const SEVERITIES = [
+  { n: 0, label: "Not a problem", short: "None",        color: "var(--sev-0)" },
+  { n: 1, label: "Cosmetic",      short: "Cosmetic",    color: "var(--sev-1)" },
+  { n: 2, label: "Minor",         short: "Minor",       color: "var(--sev-2)" },
+  { n: 3, label: "Major",         short: "Major",       color: "var(--sev-3)" },
+  { n: 4, label: "Catastrophe",   short: "Catastrophe", color: "var(--sev-4)" }
+];
+
+const MAX_IMAGE_EDGE = 1800;   // shrink anything bigger than this, in pixels
+
+/* Are we running inside a frame on someone else's page? If so the browser
+   may refuse to let us open the print dialogue, and we should say so rather
+   than offering a button that quietly does nothing. */
+const IN_FRAME = (function () {
+  try { return window.self !== window.top; } catch (e) { return true; }
+})();
+
+/* ==========================================================================
+   2. STATE — the single source of truth.
+   If it isn't in here, it isn't real.
+   ========================================================================== */
+let state = {
+  view: "edit",              // "edit" or "report"
+  meta: {
+    screen: "", product: "", evaluator: "",
+    date: new Date().toISOString().slice(0, 10),
+    task: ""
+  },
+  screenshot: null,          // { dataUrl, name, w, h } once an image is loaded
+  lightbox: false,           // is the enlarged view open?
+  lightboxZoom: false,       // is that enlarged view zoomed to full size?
+  findings: [],              // [{ id, heuristicId, issue, recommendation, severity }]
+
+  /* Which editor is open, if any.
+       null                                  → no editor open
+       { heuristicId: 3, findingId: null }   → writing a NEW finding on H3
+       { heuristicId: 3, findingId: 7 }      → editing existing finding 7
+     One shape covers both cases, so there's only one editor to build and one
+     place that can be open at a time. */
+  editing: null,
+
+  notice: "",                // a short message to show the user
+  nextId: 1
+};
+
+/* ==========================================================================
+   3. HELPERS
+   ========================================================================== */
+
+/* Turn user text into safe HTML. Without this, someone typing < or & would
+   break the page. Always escape user input before putting it into HTML. */
+function esc(str) {
+  return String(str == null ? "" : str)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function findingsFor(id) { return state.findings.filter(f => f.heuristicId === id); }
+
+function severityCounts() {
+  const counts = [0, 0, 0, 0, 0];
+  state.findings.forEach(f => counts[f.severity]++);
+  return counts;
+}
+
+function formatDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+}
+
+function severityChip(n) {
+  const s = SEVERITIES[n];
+  return `<span class="sev-chip" style="background:${s.color}">
+            <span class="n">${s.n}</span>${esc(s.short)}
+          </span>`;
+}
+
+/* A landscape screenshot is unreadable squeezed into a narrow column, so give
+   it a wider panel. A tall phone screenshot is happier in a narrow one. */
+function panelWidth() {
+  if (!state.screenshot) return 350;
+  return state.screenshot.w / state.screenshot.h > 1.25 ? 440 : 330;
+}
+
+/* The worst severity recorded against a heuristic, or null if it has none.
+   This is what colours its dot on the rail — a heuristic with one catastrophe
+   and four cosmetic issues should read as a catastrophe at a glance. */
+function worstSeverity(heuristicId) {
+  const found = findingsFor(heuristicId);
+  return found.length ? Math.max.apply(null, found.map(f => f.severity)) : null;
+}
+
+/* ==========================================================================
+   4. LOADING A SCREENSHOT
+
+   Reading a file is SLOW compared to everything else, so the browser refuses
+   to wait for it. Instead you hand it a function to run "when you're done".
+   That's what all the .onload lines below are. The code reads top-to-bottom
+   but does NOT run top-to-bottom — the thing that trips everyone up first time.
+
+   We also shrink big images. A modern screenshot can be 3000px wide, and
+   holding that in memory is wasteful when it will never be shown above 1800.
+   ========================================================================== */
+function loadScreenshot(file) {
+  if (!file) return;
+
+  if (!file.type || !file.type.startsWith("image/")) {
+    state.notice = "That file isn't an image. PNG or JPG screenshots work best.";
+    render();
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onerror = () => { state.notice = "Couldn't read that file. Try again?"; render(); };
+
+  reader.onload = readEvent => {
+    const img = new Image();
+    img.onerror = () => { state.notice = "That image seems to be damaged."; render(); };
+
+    img.onload = () => {
+      const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width  * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+
+      // A <canvas> is an off-screen drawing surface. Draw the image onto one
+      // at the smaller size, then ask the canvas for the result as text.
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+
+      state.screenshot = {
+        dataUrl: canvas.toDataURL("image/png"),
+        name: file.name || "Pasted screenshot",
+        w: w, h: h
+      };
+      state.notice = "";
+      render();
+    };
+
+    img.src = readEvent.target.result;   // starts the decode; img.onload fires later
+  };
+
+  reader.readAsDataURL(file);            // starts the read; reader.onload fires later
+}
+
+/* ==========================================================================
+   5. RENDER — state in, HTML out.
+   ========================================================================== */
+function render() {
+  document.documentElement.style.setProperty("--panel-w", panelWidth() + "px");
+  document.getElementById("app").innerHTML =
+    (state.view === "edit" ? renderEditView() : renderReportView()) + renderLightbox();
+  paintSeverityPills();
+  updateRailActive();
+}
+
+/* Put the cursor in the editor that just opened. */
+function focusIssueBox() {
+  const box = document.querySelector('[data-input="issue"]');
+  if (box) {
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);   // cursor at the end
+  }
+}
+
+function smoothOk() {
+  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/* ---------- EDIT VIEW ---------- */
+function renderEditView() {
+  const counts = severityCounts();
+  const reviewed = HEURISTICS.filter(h => findingsFor(h.id).length > 0).length;
+
+  const tally = SEVERITIES
+    .filter(s => counts[s.n] > 0)
+    .map(s => `<span><i class="dot" style="background:${s.color}"></i>
+                 ${counts[s.n]} ${esc(s.short.toLowerCase())}</span>`)
+    .join("");
+
+  const main = `
+    ${state.notice ? `<div class="notice">${esc(state.notice)}</div>` : ""}
+
+    <div class="card setup">
+      <div class="setup-grid">
+        ${textField("screen",    "Screen or flow", "e.g. Checkout — payment step")}
+        ${textField("product",   "Product",        "e.g. Acme Retail App")}
+        ${textField("evaluator", "Evaluator",      "Your name")}
+        <label class="field">
+          <span class="lbl">Date</span>
+          <input type="date" data-meta="date" value="${esc(state.meta.date)}">
+        </label>
+      </div>
+
+      <label class="field" style="margin-top:14px">
+        <span class="lbl">Task being evaluated <em>(optional)</em></span>
+        <textarea data-meta="task"
+          placeholder="What is the user trying to do on this screen? Naming the task keeps the review honest.">${esc(state.meta.task)}</textarea>
+      </label>
+
+      ${state.screenshot ? "" : `
+        <label class="dropzone">
+          <input type="file" accept="image/*" data-input="file">
+          <b>Drop a screenshot of the screen you're reviewing</b>
+          <small>Or paste with <span class="kbd">Ctrl</span>+<span class="kbd">V</span>,
+                 or click to choose a file. Entirely optional — skip it and everything still works.</small>
+        </label>`}
+    </div>
+
+    <div class="progress">
+      <strong>${reviewed}/10</strong> heuristics with findings
+      <span class="sep">·</span>
+      <strong>${state.findings.length}</strong> finding${state.findings.length === 1 ? "" : "s"}
+      ${tally ? `<span class="sep">·</span><span class="tally">${tally}</span>` : ""}
+    </div>
+
+    ${HEURISTICS.map(renderHeuristic).join("")}
+
+    <div class="actionbar no-print">
+      <button class="btn btn-primary" data-action="report">Generate report</button>
+      <span class="spacer"></span>
+      <span class="hint">${state.findings.length === 0
+        ? "Add at least one finding to produce a report."
+        : "Report opens in a printable view."}</span>
+    </div>
+  `;
+
+  /* The title sits ABOVE the columns rather than inside the heuristics column.
+     On a narrow window the columns stack, and a title buried inside one of
+     them would end up scrolled off below the screenshot. */
+  return `
+    <header class="topbar ${state.screenshot ? "wide" : ""}">
+      <div>
+        <h1>Heuristic Evaluation Runner</h1>
+        <p>Nielsen's 10 usability heuristics · severity rated 0–4</p>
+      </div>
+    </header>
+
+    <div class="layout ${state.screenshot ? "with-shot" : ""}">
+      <div class="railcol">${renderRail()}</div>
+      ${state.screenshot ? `<aside class="shotcol">${renderShotPanel()}</aside>` : ""}
+      <div class="maincol">${main}</div>
+    </div>`;
+}
+
+function renderRail() {
+  const dots = HEURISTICS.map(h => {
+    const worst = worstSeverity(h.id);
+    const count = findingsFor(h.id).length;
+    const label = worst === null
+      ? `${h.id}. ${h.name} — no findings yet`
+      : `${h.id}. ${h.name} — ${count} finding${count === 1 ? "" : "s"}, worst: ${SEVERITIES[worst].label}`;
+    return `<button class="rail-dot ${worst === null ? "" : "has"}"
+                    data-action="jump" data-heuristic="${h.id}"
+                    style="${worst === null ? "" : `background:${SEVERITIES[worst].color}`}"
+                    title="${esc(label)}" aria-label="${esc(label)}">${h.id}</button>`;
+  }).join("");
+
+  return `<nav class="rail no-print" aria-label="Heuristics">${dots}</nav>`;
+}
+
+function renderShotPanel() {
+  const s = state.screenshot;
+  return `
+    <div class="shotpanel">
+      <div class="card">
+        <figure data-action="lightbox" title="Click to enlarge">
+          <img src="${s.dataUrl}" alt="Screenshot being evaluated">
+        </figure>
+        <div class="shot-meta">
+          <span class="name" title="${esc(s.name)}">${esc(s.name)}</span>
+          <button class="linkbtn" data-action="replace">Replace</button>
+          <button class="linkbtn danger" data-action="remove-shot">Remove</button>
+        </div>
+      </div>
+      <p class="shot-hint">Click the image to view it full size</p>
+      <input type="file" accept="image/*" data-input="file" style="display:none">
+    </div>`;
+}
+
+function textField(key, label, placeholder) {
+  return `<label class="field">
+            <span class="lbl">${esc(label)}</span>
+            <input type="text" data-meta="${key}" value="${esc(state.meta[key])}"
+                   placeholder="${esc(placeholder)}">
+          </label>`;
+}
+
+function renderHeuristic(h) {
+  const found = findingsFor(h.id);
+  /* Is an editor open on THIS heuristic, and if so which finding is it for? */
+  const ed = state.editing && state.editing.heuristicId === h.id ? state.editing : null;
+
+  const list = found.map(f =>
+    /* A finding being edited is replaced in place by the editor, rather than
+       having the form open somewhere else while the old text sits above it
+       still looking authoritative. */
+    ed && ed.findingId === f.id
+      ? `<li class="finding-editing">${renderEditor(h.id, f)}</li>`
+      : `<li class="finding">
+           ${severityChip(f.severity)}
+           <div class="finding-body">
+             <p class="finding-issue">${esc(f.issue)}</p>
+             ${f.recommendation ? `<p class="finding-rec"><b>Recommendation:</b> ${esc(f.recommendation)}</p>` : ""}
+           </div>
+           <div class="finding-actions">
+             <button class="linkbtn" data-action="edit-finding" data-id="${f.id}">Edit</button>
+             <button class="btn-x" data-action="delete" data-id="${f.id}"
+                     title="Delete finding" aria-label="Delete finding">&times;</button>
+           </div>
+         </li>`
+  ).join("");
+
+  /* Below the list sits either the new-finding editor, the Add button, or —
+     while an existing finding is being edited — nothing, so there's never
+     more than one form open on a card. */
+  let footer;
+  if (ed && ed.findingId === null) {
+    footer = renderEditor(h.id, null);
+  } else if (ed) {
+    footer = "";
+  } else {
+    footer = `<div style="margin-top:14px">
+                <button class="btn-ghost" data-action="open-editor" data-heuristic="${h.id}">+ Add finding</button>
+              </div>`;
+  }
+
+  return `
+    <section class="card heuristic ${found.length ? "reviewed" : ""}" id="h${h.id}">
+      <div class="h-head">
+        <div class="h-num">${h.id}</div>
+        <div style="flex:1;min-width:0">
+          <h2 class="h-title">${esc(h.name)}</h2>
+          <p class="h-desc">${esc(h.desc)}</p>
+          <p class="h-prompt">${esc(h.prompt)}</p>
+        </div>
+      </div>
+      ${found.length ? `<ul class="findings">${list}</ul>` : ""}
+      ${footer}
+    </section>`;
+}
+
+/* One editor serves both jobs. Pass a finding to edit it; pass null to write
+   a new one. Everything that differs — the pre-filled values, which severity
+   starts selected, the button wording — comes from that single argument. */
+function renderEditor(heuristicId, finding) {
+  const chosen = finding ? finding.severity : 2;
+
+  const opts = SEVERITIES.map(s => `
+    <label class="sev-opt">
+      <input type="radio" name="severity" value="${s.n}" ${s.n === chosen ? "checked" : ""}>
+      <span data-color="${s.color}">${s.n} · ${esc(s.label)}</span>
+    </label>`).join("");
+
+  return `
+    <div class="editor" data-editor="${heuristicId}">
+      <label class="field">
+        <span class="lbl">What's the problem?</span>
+        <textarea data-input="issue"
+          placeholder="Describe what you observed, not what you'd change. e.g. 'No confirmation appears after the card is saved, so users tap Save repeatedly.'">${esc(finding ? finding.issue : "")}</textarea>
+      </label>
+      <label class="field">
+        <span class="lbl">Severity</span>
+        <div class="sev-row">${opts}</div>
+      </label>
+      <label class="field">
+        <span class="lbl">Recommendation <em>(optional)</em></span>
+        <textarea data-input="recommendation" placeholder="What would you do about it?">${esc(finding ? finding.recommendation : "")}</textarea>
+      </label>
+      <div class="editor-actions">
+        <button class="btn btn-primary" data-action="save-finding"
+                data-heuristic="${heuristicId}" data-id="${finding ? finding.id : ""}">
+          ${finding ? "Save changes" : "Save finding"}
+        </button>
+        <button class="btn" data-action="cancel-editor">Cancel</button>
+      </div>
+    </div>`;
+}
+
+/* ---------- LIGHTBOX ---------- */
+function renderLightbox() {
+  if (!state.lightbox || !state.screenshot) return "";
+  return `
+    <div class="lightbox ${state.lightboxZoom ? "zoomed" : ""}" data-action="close-lightbox">
+      <div class="lightbox-bar">
+        <button class="btn" data-action="toggle-zoom">${state.lightboxZoom ? "Fit to screen" : "Zoom to 100%"}</button>
+        <button class="btn" data-action="close-lightbox">Close</button>
+      </div>
+      <img src="${state.screenshot.dataUrl}" alt="Screenshot, enlarged" data-action="toggle-zoom">
+    </div>`;
+}
+
+/* ---------- REPORT VIEW ---------- */
+function renderReportView() {
+  const counts = severityCounts();
+  const max = Math.max(1, ...counts);
+
+  const bars = SEVERITIES.slice().reverse().map(s => `
+    <div class="sev-bar-row">
+      <span>${s.n} · ${esc(s.label)}</span>
+      <span class="sev-bar-track">
+        ${counts[s.n] ? `<span class="sev-bar-fill" style="background:${s.color};width:${(counts[s.n] / max) * 100}%"></span>` : ""}
+      </span>
+      <span class="count">${counts[s.n]}</span>
+    </div>`).join("");
+
+  /* Sort worst-first — that's the whole point of severity ratings. */
+  const sorted = state.findings.slice()
+    .sort((a, b) => b.severity - a.severity || a.heuristicId - b.heuristicId);
+
+  const body = sorted.length ? sorted.map(f => {
+    const h = HEURISTICS.find(x => x.id === f.heuristicId);
+    return `
+      <div class="r-finding" style="border-left-color:${SEVERITIES[f.severity].color}">
+        <div class="r-finding-head">
+          ${severityChip(f.severity)}
+          <span class="r-heur">H${h.id} · ${esc(h.name)}</span>
+        </div>
+        <p class="r-issue">${esc(f.issue)}</p>
+        ${f.recommendation ? `<p class="r-rec"><b>Recommendation:</b> ${esc(f.recommendation)}</p>` : ""}
+      </div>`;
+  }).join("") : `<p class="clean-note">No findings recorded.</p>`;
+
+  const topLine = sorted.length
+    ? `${sorted.length} finding${sorted.length === 1 ? "" : "s"} across
+       ${new Set(sorted.map(f => f.heuristicId)).size} of 10 heuristics ·
+       ${counts[4] + counts[3]} rated major or above`
+    : "No findings recorded.";
+
+  return `
+    <div class="actionbar no-print" style="position:static;margin:0 auto 22px;max-width:860px">
+      <button class="btn" data-action="back">← Back to evaluation</button>
+      <span class="spacer"></span>
+      ${IN_FRAME ? `<span class="hint">Open this page in its own browser tab to print</span>` : ""}
+      <button class="btn btn-primary" data-action="print">Print / Save as PDF</button>
+    </div>
+
+    <div class="card report">
+      <h2>${esc(state.meta.screen || "Untitled screen")}</h2>
+      <p class="sub">Heuristic evaluation · Nielsen's 10 usability heuristics</p>
+
+      <div class="report-meta">
+        <div><span>Product</span><b>${esc(state.meta.product || "—")}</b></div>
+        <div><span>Evaluator</span><b>${esc(state.meta.evaluator || "—")}</b></div>
+        <div><span>Date</span><b>${esc(formatDate(state.meta.date))}</b></div>
+        <div><span>Findings</span><b>${state.findings.length}</b></div>
+      </div>
+
+      ${state.screenshot ? `
+        <figure class="report-shot">
+          <img src="${state.screenshot.dataUrl}" alt="Screen evaluated">
+          <figcaption>${esc(state.meta.screen || "Screen evaluated")}</figcaption>
+        </figure>` : ""}
+
+      ${state.meta.task ? `
+        <h3>Task evaluated</h3>
+        <p style="margin:0;font-size:14.5px">${esc(state.meta.task)}</p>` : ""}
+
+      <h3>Severity distribution</h3>
+      <div class="sev-bars">${bars}</div>
+      <p style="font-size:13.5px;color:var(--text-soft);margin:0">${topLine}</p>
+
+      <h3>Findings — most severe first</h3>
+      ${body}
+
+      <div class="report-foot">
+        Severity scale (Nielsen, 1994): 0 not a problem · 1 cosmetic ·
+        2 minor · 3 major · 4 usability catastrophe.
+      </div>
+    </div>`;
+}
+
+/* ==========================================================================
+   6. EVENTS
+   One listener on the whole document handles every click, reading the
+   data-action attribute to decide what to do. This is "event delegation" —
+   freshly-rendered buttons work automatically, with no re-wiring.
+   ========================================================================== */
+document.addEventListener("click", event => {
+  const target = event.target.closest("[data-action]");
+  if (!target) return;
+  const action = target.dataset.action;
+
+  if (action === "open-editor") {
+    state.editing = { heuristicId: Number(target.dataset.heuristic), findingId: null };
+    render();
+    focusIssueBox();
+
+  } else if (action === "edit-finding") {
+    const finding = state.findings.find(f => f.id === Number(target.dataset.id));
+    if (!finding) return;
+    state.editing = { heuristicId: finding.heuristicId, findingId: finding.id };
+    render();
+    focusIssueBox();
+
+  } else if (action === "cancel-editor") {
+    state.editing = null;
+    render();
+
+  } else if (action === "save-finding") {
+    const editor = target.closest(".editor");
+    const issueBox = editor.querySelector('[data-input="issue"]');
+    const issue = issueBox.value.trim();
+    if (!issue) { issueBox.focus(); return; }   // never save an empty finding
+
+    const recommendation = editor.querySelector('[data-input="recommendation"]').value.trim();
+    const severity = Number(editor.querySelector('input[name="severity"]:checked').value);
+    const existingId = target.dataset.id;       // "" when this is a new finding
+
+    if (existingId) {
+      const finding = state.findings.find(f => f.id === Number(existingId));
+      if (finding) {
+        finding.issue = issue;
+        finding.recommendation = recommendation;
+        finding.severity = severity;
+      }
+    } else {
+      state.findings.push({
+        id: state.nextId++,
+        heuristicId: Number(target.dataset.heuristic),
+        issue: issue,
+        recommendation: recommendation,
+        severity: severity
+      });
+    }
+    state.editing = null;
+    render();
+
+  } else if (action === "delete") {
+    state.findings = state.findings.filter(f => f.id !== Number(target.dataset.id));
+    state.editing = null;
+    render();
+
+  } else if (action === "jump") {
+    const card = document.getElementById("h" + target.dataset.heuristic);
+    if (card) card.scrollIntoView({ behavior: smoothOk() ? "smooth" : "auto", block: "start" });
+
+  } else if (action === "lightbox") {
+    state.lightbox = true; state.lightboxZoom = false; render();
+
+  } else if (action === "toggle-zoom") {
+    event.stopPropagation();          // don't also trigger "close" behind it
+    state.lightboxZoom = !state.lightboxZoom; render();
+
+  } else if (action === "close-lightbox") {
+    state.lightbox = false; render();
+
+  } else if (action === "replace") {
+    document.querySelector('.shotpanel [data-input="file"]').click();
+
+  } else if (action === "remove-shot") {
+    state.screenshot = null; state.lightbox = false; render();
+
+  } else if (action === "report") {
+    state.editing = null; state.view = "report"; render();
+    window.scrollTo({ top: 0 });
+
+  } else if (action === "back") {
+    state.view = "edit"; render();
+    window.scrollTo({ top: 0 });
+
+  } else if (action === "print") {
+    try {
+      window.print();
+    } catch (e) {
+      state.notice = "This page can't open the print dialogue here. " +
+                     "Open it in its own browser tab, then print from there.";
+      render();
+    }
+  }
+});
+
+/* Keep `state.meta` in step with the setup fields as you type. We only store
+   the value — no re-render, because re-rendering mid-typing would steal your
+   cursor. */
+document.addEventListener("input", event => {
+  const key = event.target.dataset.meta;
+  if (key) state.meta[key] = event.target.value;
+});
+
+/* File chosen from the picker. */
+document.addEventListener("change", event => {
+  if (event.target.dataset.input === "file") {
+    loadScreenshot(event.target.files[0]);
+    event.target.value = "";        // lets you pick the same file again later
+  }
+  if (event.target.name === "severity") paintSeverityPills();
+});
+
+/* ---------- Paste a screenshot from the clipboard ----------
+   Designers take a screenshot and it's already on the clipboard. Making them
+   save it and hunt for it in a file picker is three steps of nothing. We only
+   step in if the clipboard actually holds an image, so pasting text into a
+   textarea still behaves normally. */
+document.addEventListener("paste", event => {
+  const items = Array.from(event.clipboardData ? event.clipboardData.items : []);
+  const image = items.find(i => i.type && i.type.startsWith("image/"));
+  if (!image) return;
+  event.preventDefault();
+  loadScreenshot(image.getAsFile());
+});
+
+/* ---------- Drag a screenshot anywhere onto the window ----------
+   dragenter/dragleave fire for every child element the cursor crosses, which
+   makes the highlight flicker. Counting enters and leaves fixes it. */
+let dragDepth = 0;
+document.addEventListener("dragenter", event => {
+  event.preventDefault();
+  dragDepth++;
+  document.body.classList.add("dragging");
+});
+document.addEventListener("dragleave", () => {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) document.body.classList.remove("dragging");
+});
+document.addEventListener("dragover", event => event.preventDefault());
+document.addEventListener("drop", event => {
+  event.preventDefault();            // without this the browser opens the file
+  dragDepth = 0;
+  document.body.classList.remove("dragging");
+  const file = event.dataTransfer && event.dataTransfer.files[0];
+  if (file) loadScreenshot(file);
+});
+
+/* Esc closes the enlarged view — every overlay should have an obvious exit.
+   (Heuristic 3, in your own tool.) */
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && state.lightbox) {
+    state.lightbox = false;
+    render();
+  }
+});
+
+/* ---------- "You are here" on the rail ----------
+   Everywhere else in this app, a change goes into `state` and render() redraws
+   from it. This is the one deliberate exception. Scrolling fires dozens of
+   times a second, and a full redraw that often would be wasteful and would rip
+   the cursor out of whatever you were typing. So this reaches into the page and
+   toggles one class instead.
+
+   Worth knowing the rule and knowing when you're breaking it: state → render
+   is for things the user CHANGED; this is only about where they're LOOKING. */
+function updateRailActive() {
+  const dots = document.querySelectorAll(".rail-dot");
+  if (!dots.length) return;
+
+  // Whichever card has crossed a line near the top of the window is "current".
+  const line = window.innerHeight * 0.3;
+  let current = HEURISTICS[0].id;
+  HEURISTICS.forEach(h => {
+    const card = document.getElementById("h" + h.id);
+    if (card && card.getBoundingClientRect().top <= line) current = h.id;
+  });
+
+  dots.forEach(dot =>
+    dot.classList.toggle("active", Number(dot.dataset.heuristic) === current));
+}
+
+/* Scroll events fire far faster than the screen refreshes. requestAnimationFrame
+   collapses a burst of them into one update per frame. */
+let railTick = false;
+window.addEventListener("scroll", () => {
+  if (railTick) return;
+  railTick = true;
+  requestAnimationFrame(() => { railTick = false; updateRailActive(); });
+}, { passive: true });
+
+window.addEventListener("resize", updateRailActive, { passive: true });
+
+/* Tint the selected severity pill. CSS alone can't reach a sibling's custom
+   colour here, so a little JS does it after each render. */
+function paintSeverityPills() {
+  document.querySelectorAll(".sev-opt").forEach(opt => {
+    const input = opt.querySelector("input");
+    const pill  = opt.querySelector("span");
+    pill.style.background = input.checked ? pill.dataset.color : "var(--field-bg)";
+    pill.style.color      = input.checked ? "var(--ink-on-color)" : "";
+  });
+}
+
+/* ==========================================================================
+   7. GO
+   ========================================================================== */
+render();
+</script>
+
+</html>
