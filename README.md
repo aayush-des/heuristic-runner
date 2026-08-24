@@ -9,7 +9,7 @@ Built by a product designer learning to build things.
 
 ## Using it
 
-**[→ Open the tool](https://aayush-des.github.io/heuristic-runner/)**
+**[→ Open the tool](https://aayush-des.github.io/heuristic-runner/?v=4)**
 
 1. Name the screen you're reviewing and, optionally, the task the user is trying to complete.
 2. Drop, paste, or pick a screenshot. It pins to the side and stays there while you scroll.
