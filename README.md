@@ -6,7 +6,7 @@ rating each finding on Nielsen's 0–4 severity scale, and printing the result a
 
 **[→ Open the tool](https://aayush-des.github.io/heuristic-runner/)**
 
-![The Heuristic Evaluation Runner in use: a rail of ten numbered dots down the left, the heuristics in the middle with a recorded finding, and the screen being reviewed pinned on the right](screenshot.png)
+![The Heuristic Evaluation Runner in use: a rail of ten numbered dots down the left, the heuristics in the middle with a recorded finding, and the screen being reviewed pinned on the right]
 
 Built by a product designer learning to build things.
 
